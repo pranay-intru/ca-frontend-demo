@@ -1,0 +1,87 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - CA-Demo
+
+jobs:
+  # 1. Hook - check if workflow should start
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch
+        run: echo "CI started for branch $GITHUB_REF"
+
+  # 2. Checkout and prepare
+  checkout:
+    runs-on: ubuntu-latest
+    needs: check-branch
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+  # 3. Docker Build
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: checkout
+    steps:
+      - name: Set image variables
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${{ github.repository }}/ca-app" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+      - name: Build Docker image
+        run: docker build -t $IMAGE_NAME:$IMAGE_TAG .
+
+  # 4. Push Docker Image to GHCR
+  docker-push:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Push image
+        run: docker push ghcr.io/${{ github.repository }}/ca-app:${{ github.sha }}
+
+  # 5. Delete local image
+  docker-cleanup:
+    runs-on: ubuntu-latest
+    needs: docker-push
+    steps:
+      - name: Remove local image
+        run: docker rmi ghcr.io/${{ github.repository }}/ca-app:${{ github.sha }} || true
+
+  # 6. Maintain only top 5 images
+  prune-images:
+    runs-on: ubuntu-latest
+    needs: docker-cleanup
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Prune old images
+        run: |
+          IMAGES=$(gh api -H "Accept: application/vnd.github+json" \
+            /user/packages/container/ca-app/versions | jq '.[].id')
+          COUNT=$(echo "$IMAGES" | wc -l)
+          if [ "$COUNT" -gt 5 ]; then
+            echo "$IMAGES" | tail -n +6 | while read id; do
+              gh api --method DELETE /user/packages/container/ca-app/versions/$id
+            done
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 7. Deploy + rollback if failed
+  deploy:
+    runs-on: ubuntu-latest
+    needs: prune-images
+    steps:
+      - name: Deploy new image
+        run: ./deploy.sh ghcr.io/${{ github.repository }}/ca-app:${{ github.sha }}
+
+      - name: Health check
+        run: curl -f http://localhost:80/ || exit 1
+
+      - name: Rollback if failed
+        if: failure()
+        run: ./deploy.sh ghcr.io/${{ github.repository }}/ca-app:previous-tag
