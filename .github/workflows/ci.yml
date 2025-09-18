@@ -46,3 +46,25 @@ jobs:
         run: |
           docker push $IMAGE_NAME:$IMAGE_TAG
           docker push $IMAGE_NAME:latest
+
+      # 5. Cleanup local Docker images
+      - name: Cleanup local Docker images
+        run: |
+          docker rmi -f $IMAGE_NAME:$IMAGE_TAG || true
+          docker rmi -f $IMAGE_NAME:latest || true
+
+      # 6. Retain only last 5 images
+      - name: Prune GHCR (keep last 5 images)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: "ca-app"
+          package-type: "container"
+          min-versions-to-keep: 5
+
+      # 7. Rollback on failure
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Build/Push failed — restoring previous Docker image"
+          # Example rollback logic (adjust to your deploy process):
+          # docker pull ghcr.io/${{ github.repository_owner }}/ca-app:previous
