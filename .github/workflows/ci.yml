@@ -8,6 +8,10 @@ on:
     branches:
       - CA-Demo
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   docker:
     runs-on: ubuntu-latest
