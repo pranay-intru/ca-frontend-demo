@@ -33,19 +33,22 @@ jobs:
       - name: Build Docker image
         run: |
           IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/ca-app
+          VERSION=v${{ github.run_number }}
           IMAGE_TAG=${{ github.sha }}
 
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
           # Build and tag two versions: commit SHA and latest
-          docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest .
+          docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest -t $IMAGE_NAME:$VERSION .
 
       # 4. Push Docker images
       - name: Push Docker images
         run: |
           docker push $IMAGE_NAME:$IMAGE_TAG
           docker push $IMAGE_NAME:latest
+          docker push $IMAGE_NAME:$VERSION
 
       # 5. Cleanup local Docker images
       - name: Cleanup local Docker images
